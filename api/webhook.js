@@ -286,13 +286,29 @@ async function handleCheckoutComplete(session) {
             return;
         }
 
-        // Get shipping address
-        const shippingAddress = shipping_details?.address || customer_details?.address;
+        // Get shipping address - use shipping_details first, then billing (customer_details.address)
+        const shippingAddress = shipping_details?.address || customer_details?.address || null;
+        // Get billing address separately from customer_details
+        const billingAddress = customer_details?.address || shipping_details?.address || null;
         console.log('Shipping address:', JSON.stringify(shippingAddress));
+        console.log('Billing address:', JSON.stringify(billingAddress));
+
+        // IMPORTANT: Never silently drop an order! Customer has already paid.
+        // If no address found, use placeholder so the order is still created and can be fixed manually.
+        const placeholderAddress = {
+            line1: 'Address not provided - please contact customer',
+            line2: '',
+            city: 'Unknown',
+            state: '',
+            country: metadata?.country_code || 'AE',
+            postal_code: '00000',
+        };
+
+        const finalShippingAddress = shippingAddress || placeholderAddress;
+        const finalBillingAddress = billingAddress || shippingAddress || placeholderAddress;
 
         if (!shippingAddress) {
-            console.error('ERROR: No shipping address found in session');
-            return;
+            console.warn('WARNING: No shipping address found in session - using placeholder. Order will need manual address update.');
         }
 
         // Calculate shipping cost from line items
@@ -319,14 +335,26 @@ async function handleCheckoutComplete(session) {
             shippingAddress: {
                 firstName: customer_details.name?.split(' ')[0] || 'Customer',
                 lastName: customer_details.name?.split(' ').slice(1).join(' ') || '',
-                line1: shippingAddress.line1,
-                line2: shippingAddress.line2,
-                city: shippingAddress.city,
-                state: shippingAddress.state,
-                country: shippingAddress.country,
-                postalCode: shippingAddress.postal_code,
-                phone: customer_details.phone,
+                line1: finalShippingAddress.line1 || '',
+                line2: finalShippingAddress.line2 || '',
+                city: finalShippingAddress.city || '',
+                state: finalShippingAddress.state || '',
+                country: finalShippingAddress.country || metadata?.country_code || '',
+                postalCode: finalShippingAddress.postal_code || '',
+                phone: customer_details.phone || '',
             },
+            billingAddress: {
+                firstName: customer_details.name?.split(' ')[0] || 'Customer',
+                lastName: customer_details.name?.split(' ').slice(1).join(' ') || '',
+                line1: finalBillingAddress.line1 || '',
+                line2: finalBillingAddress.line2 || '',
+                city: finalBillingAddress.city || '',
+                state: finalBillingAddress.state || '',
+                country: finalBillingAddress.country || metadata?.country_code || '',
+                postalCode: finalBillingAddress.postal_code || '',
+                phone: customer_details.phone || '',
+            },
+            addressMissing: !shippingAddress, // Flag for Shopify order tagging
             currency: metadata?.currency || 'USD',
             totalAmount: fullSession.amount_total,
             shippingCost: shippingCost,

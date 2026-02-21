@@ -15,6 +15,8 @@ async function createShopifyOrder(orderData) {
         customer,
         lineItems,
         shippingAddress,
+        billingAddress,
+        addressMissing,
         currency,
         totalAmount,
         shippingCost,
@@ -23,6 +25,9 @@ async function createShopifyOrder(orderData) {
         discountAmount,
         acceptsMarketing
     } = orderData;
+
+    // Use billing address if provided, otherwise fall back to shipping address
+    const finalBillingAddress = billingAddress || shippingAddress;
 
     // Check if currency uses 3 decimals (KWD, OMR, BHD)
     const is3DecimalCurrency = ['KWD', 'OMR', 'BHD'].includes(currency?.toUpperCase());
@@ -49,7 +54,7 @@ async function createShopifyOrder(orderData) {
                     { name: 'discount_amount', value: `${(discountAmount / divisor).toFixed(2)} ${currency}` }
                 ] : [])
             ],
-            tags: `stripe-checkout, multi-currency, stripe:${stripePaymentIntentId}${discountCode ? `, promo:${discountCode}` : ''}`,
+            tags: `stripe-checkout, multi-currency, stripe:${stripePaymentIntentId}${discountCode ? `, promo:${discountCode}` : ''}${addressMissing ? ', needs-address-review' : ''}`,
             discount_codes: discountCode ? [
                 {
                     code: discountCode,
@@ -64,26 +69,26 @@ async function createShopifyOrder(orderData) {
                 price: (item.price / divisor).toFixed(2), // Divide by 1000 for KWD/OMR/BHD
             })),
             shipping_address: {
-                first_name: shippingAddress.firstName,
-                last_name: shippingAddress.lastName,
-                address1: shippingAddress.line1,
-                address2: shippingAddress.line2 || undefined,
-                city: shippingAddress.city,
-                province: shippingAddress.state || undefined,
-                country: shippingAddress.country,
-                zip: shippingAddress.postalCode,
-                phone: shippingAddress.phone || undefined,
+                first_name: shippingAddress.firstName || 'Customer',
+                last_name: shippingAddress.lastName || '',
+                address1: shippingAddress.line1 || 'Address not provided',
+                address2: shippingAddress.line2 || '',
+                city: shippingAddress.city || 'Unknown',
+                province: shippingAddress.state || '',
+                country: shippingAddress.country || '',
+                zip: shippingAddress.postalCode || '',
+                phone: shippingAddress.phone || '',
             },
             billing_address: {
-                first_name: shippingAddress.firstName,
-                last_name: shippingAddress.lastName,
-                address1: shippingAddress.line1,
-                address2: shippingAddress.line2 || undefined,
-                city: shippingAddress.city,
-                province: shippingAddress.state || undefined,
-                country: shippingAddress.country,
-                zip: shippingAddress.postalCode,
-                phone: shippingAddress.phone || undefined,
+                first_name: finalBillingAddress.firstName || 'Customer',
+                last_name: finalBillingAddress.lastName || '',
+                address1: finalBillingAddress.line1 || 'Address not provided',
+                address2: finalBillingAddress.line2 || '',
+                city: finalBillingAddress.city || 'Unknown',
+                province: finalBillingAddress.state || '',
+                country: finalBillingAddress.country || '',
+                zip: finalBillingAddress.postalCode || '',
+                phone: finalBillingAddress.phone || '',
             },
             shipping_lines: [
                 {
