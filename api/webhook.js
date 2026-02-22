@@ -378,6 +378,41 @@ async function handleCheckoutComplete(session) {
         }
         console.log('Shopify credentials present, creating order...');
 
+        // ===== DEDUPLICATION CHECK =====
+        // Prevent duplicate orders from Stripe webhook retries
+        const stripePaymentId = payment_intent?.id || session.payment_intent;
+        if (stripePaymentId) {
+            try {
+                const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
+                const SHOPIFY_ADMIN_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
+
+                const searchResponse = await fetch(
+                    `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/orders.json?status=any&tag=stripe:${stripePaymentId}&limit=1`,
+                    {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN,
+                        },
+                    }
+                );
+
+                if (searchResponse.ok) {
+                    const searchData = await searchResponse.json();
+                    if (searchData.orders && searchData.orders.length > 0) {
+                        console.log(`=== DUPLICATE DETECTED: Order already exists for payment ${stripePaymentId} ===`);
+                        console.log('Existing order ID:', searchData.orders[0].id);
+                        console.log('Existing order number:', searchData.orders[0].order_number);
+                        console.log('Skipping duplicate order creation.');
+                        return; // Exit without creating duplicate
+                    }
+                }
+                console.log('No duplicate found, proceeding with order creation.');
+            } catch (dupCheckError) {
+                // If dedup check fails, proceed with order creation (better to have a duplicate than no order)
+                console.warn('Deduplication check failed, proceeding anyway:', dupCheckError.message);
+            }
+        }
+
         // Create order in Shopify
         const shopifyOrder = await createShopifyOrder(orderData);
         console.log('=== SUCCESS: Shopify order created ===');
