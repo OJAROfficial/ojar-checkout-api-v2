@@ -1,6 +1,7 @@
 /**
  * Check inventory per location for a product variant
  * GET /api/check-inventory?variant_id=XXXXX
+ * GET /api/check-inventory?product_handle=XXXXX
  * 
  * Returns per-location availability so the theme can show
  * "Sold Out" based on the customer's market warehouse.
@@ -15,6 +16,21 @@ const LOCATIONS = {
     '69179867251': 'Carrylog Warehouse',
     '77866500211': 'Saudia warehouse'
 };
+
+async function shopifyFetch(endpoint) {
+    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/${endpoint}`;
+    const response = await fetch(url, {
+        headers: {
+            'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN,
+            'Content-Type': 'application/json'
+        }
+    });
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Shopify API error (${response.status}): ${text}`);
+    }
+    return response.json();
+}
 
 module.exports = async (req, res) => {
     // CORS
@@ -36,37 +52,31 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: 'variant_id or product_handle required' });
     }
 
+    // Debug: check if env vars exist
+    if (!SHOPIFY_STORE_DOMAIN || !SHOPIFY_ADMIN_ACCESS_TOKEN) {
+        return res.status(500).json({ 
+            error: 'Missing env vars',
+            hasDomain: !!SHOPIFY_STORE_DOMAIN,
+            hasToken: !!SHOPIFY_ADMIN_ACCESS_TOKEN
+        });
+    }
+
     try {
         let inventoryItemId;
 
         if (variant_id) {
-            // Get inventory_item_id from variant
-            const variantRes = await fetch(
-                `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/variants/${variant_id}.json`,
-                { headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN } }
-            );
-            if (!variantRes.ok) throw new Error('Variant not found');
-            const variantData = await variantRes.json();
+            const variantData = await shopifyFetch(`variants/${variant_id}.json`);
             inventoryItemId = variantData.variant.inventory_item_id;
         } else {
-            // Get from product handle
-            const prodRes = await fetch(
-                `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/products.json?handle=${product_handle}`,
-                { headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN } }
-            );
-            if (!prodRes.ok) throw new Error('Product not found');
-            const prodData = await prodRes.json();
-            if (!prodData.products.length) throw new Error('Product not found');
+            const prodData = await shopifyFetch(`products.json?handle=${product_handle}`);
+            if (!prodData.products || !prodData.products.length) {
+                return res.status(404).json({ error: 'Product not found', handle: product_handle, domain: SHOPIFY_STORE_DOMAIN });
+            }
             inventoryItemId = prodData.products[0].variants[0].inventory_item_id;
         }
 
         // Get inventory levels per location
-        const invRes = await fetch(
-            `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/inventory_levels.json?inventory_item_ids=${inventoryItemId}`,
-            { headers: { 'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN } }
-        );
-        if (!invRes.ok) throw new Error('Inventory fetch failed');
-        const invData = await invRes.json();
+        const invData = await shopifyFetch(`inventory_levels.json?inventory_item_ids=${inventoryItemId}`);
 
         const availability = {};
         for (const level of invData.inventory_levels) {
