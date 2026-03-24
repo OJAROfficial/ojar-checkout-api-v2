@@ -15,85 +15,65 @@ async function createShopifyOrder(orderData) {
         customer,
         lineItems,
         shippingAddress,
-        billingAddress,
-        addressMissing,
         currency,
         totalAmount,
-        shippingCost,
         stripePaymentIntentId,
-        discountCode,
-        discountAmount,
-        acceptsMarketing
+        shippingCost
     } = orderData;
 
-    // Use billing address if provided, otherwise fall back to shipping address
-    const finalBillingAddress = billingAddress || shippingAddress;
+    // Guard: never create $0 orders
+    if (!totalAmount || totalAmount <= 0) {
+        console.log('SKIPPING: Refusing to create $0 Shopify order (totalAmount:', totalAmount, ')');
+        return { order: null, skipped: true };
+    }
 
-    // Check if currency uses 3 decimals (KWD, OMR, BHD)
-    const is3DecimalCurrency = ['KWD', 'OMR', 'BHD'].includes(currency?.toUpperCase());
-    const divisor = is3DecimalCurrency ? 1000 : 100;
+    // Filter out any $0 line items (bundle/gift set components)
+    const validLineItems = lineItems.filter(item => item.price > 0);
+    if (validLineItems.length === 0) {
+        console.log('SKIPPING: All line items are $0, refusing to create Shopify order');
+        return { order: null, skipped: true };
+    }
 
     const shopifyOrder = {
         order: {
             email: customer.email,
-            // NOTE: Removed phone - Shopify validation too strict, phone still in addresses
-            customer: {
-                first_name: shippingAddress.firstName,
-                last_name: shippingAddress.lastName,
-                email: customer.email,
-                accepts_marketing: acceptsMarketing || false,
-            },
             financial_status: 'paid',
             send_receipt: true,
             send_fulfillment_receipt: true,
-            note: discountCode ? `Promo Code: ${discountCode}` : '',
-            note_attributes: [
-                { name: 'stripe_payment_id', value: stripePaymentIntentId },
-                ...(discountCode ? [
-                    { name: 'discount_code', value: discountCode },
-                    { name: 'discount_amount', value: `${(discountAmount / divisor).toFixed(2)} ${currency}` }
-                ] : [])
-            ],
-            tags: `stripe-checkout, multi-currency, stripe:${stripePaymentIntentId}${discountCode ? `, promo:${discountCode}` : ''}${addressMissing ? ', needs-address-review' : ''}`,
-            discount_codes: discountCode ? [
-                {
-                    code: discountCode,
-                    amount: (discountAmount / divisor).toFixed(2),
-                    type: 'fixed_amount'
-                }
-            ] : undefined,
+            note: `Stripe Payment ID: ${stripePaymentIntentId}`,
+            tags: 'stripe-checkout, multi-currency',
             currency: currency,
-            line_items: lineItems.map(item => ({
+            line_items: validLineItems.map(item => ({
                 variant_id: item.variantId,
                 quantity: item.quantity,
-                price: (item.price / divisor).toFixed(2), // Divide by 1000 for KWD/OMR/BHD
+                price: (item.price / 100).toFixed(2), // Convert from cents
             })),
             shipping_address: {
-                first_name: shippingAddress.firstName || 'Customer',
-                last_name: shippingAddress.lastName || '',
-                address1: shippingAddress.line1 || 'Address not provided',
+                first_name: shippingAddress.firstName,
+                last_name: shippingAddress.lastName,
+                address1: shippingAddress.line1,
                 address2: shippingAddress.line2 || '',
-                city: shippingAddress.city || 'Unknown',
+                city: shippingAddress.city,
                 province: shippingAddress.state || '',
-                country: shippingAddress.country || '',
-                zip: shippingAddress.postalCode || '',
+                country: shippingAddress.country,
+                zip: shippingAddress.postalCode,
                 phone: shippingAddress.phone || '',
             },
             billing_address: {
-                first_name: finalBillingAddress.firstName || 'Customer',
-                last_name: finalBillingAddress.lastName || '',
-                address1: finalBillingAddress.line1 || 'Address not provided',
-                address2: finalBillingAddress.line2 || '',
-                city: finalBillingAddress.city || 'Unknown',
-                province: finalBillingAddress.state || '',
-                country: finalBillingAddress.country || '',
-                zip: finalBillingAddress.postalCode || '',
-                phone: finalBillingAddress.phone || '',
+                first_name: shippingAddress.firstName,
+                last_name: shippingAddress.lastName,
+                address1: shippingAddress.line1,
+                address2: shippingAddress.line2 || '',
+                city: shippingAddress.city,
+                province: shippingAddress.state || '',
+                country: shippingAddress.country,
+                zip: shippingAddress.postalCode,
+                phone: shippingAddress.phone || '',
             },
             shipping_lines: [
                 {
                     title: 'International Shipping',
-                    price: (shippingCost / divisor).toFixed(2),
+                    price: (shippingCost / 100).toFixed(2),
                     code: 'INTL',
                 }
             ],
@@ -101,7 +81,7 @@ async function createShopifyOrder(orderData) {
                 {
                     kind: 'sale',
                     status: 'success',
-                    amount: Math.max((totalAmount / divisor), 0.01).toFixed(2),
+                    amount: (totalAmount / 100).toFixed(2),
                     gateway: 'Stripe',
                 }
             ]
