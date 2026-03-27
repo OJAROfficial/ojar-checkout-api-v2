@@ -78,7 +78,7 @@ async function handleCheckoutComplete(session) {
         // Get full session with line items
         console.log('Fetching full session from Stripe...');
         const fullSession = await stripe.checkout.sessions.retrieve(session.id, {
-            expand: ['line_items', 'customer_details', 'payment_intent'],
+            expand: ['line_items', 'line_items.data.price.product', 'customer_details', 'payment_intent', 'total_details.breakdown'],
         });
         console.log('Full session retrieved');
 
@@ -137,6 +137,16 @@ async function handleCheckoutComplete(session) {
             console.log('Shipping cost:', shippingCost);
         }
 
+        // Extract discount from Stripe session (coupon codes)
+        let discountCode = null;
+        let discountAmount = 0;
+        if (fullSession.total_details?.breakdown?.discounts?.length > 0) {
+            const d = fullSession.total_details.breakdown.discounts[0];
+            discountAmount = d.amount || 0;
+            discountCode = d.discount?.coupon?.name || d.discount?.coupon?.id || null;
+            console.log('Discount code:', discountCode, 'Amount:', discountAmount);
+        }
+
         // Create order data
         const orderData = {
             customer: {
@@ -159,6 +169,8 @@ async function handleCheckoutComplete(session) {
             totalAmount: fullSession.amount_total,
             shippingCost: shippingCost,
             stripePaymentIntentId: payment_intent?.id || session.payment_intent,
+            discountCode,
+            discountAmount,
         };
 
         console.log('Order data prepared:', JSON.stringify(orderData, null, 2));

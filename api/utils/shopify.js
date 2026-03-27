@@ -18,7 +18,9 @@ async function createShopifyOrder(orderData) {
         currency,
         totalAmount,
         stripePaymentIntentId,
-        shippingCost
+        shippingCost,
+        discountCode,
+        discountAmount,
     } = orderData;
 
     // Guard: never create $0 orders
@@ -84,7 +86,15 @@ async function createShopifyOrder(orderData) {
                     amount: (totalAmount / 100).toFixed(2),
                     gateway: 'Stripe',
                 }
-            ]
+            ],
+            // Forward Stripe coupon/discount to Shopify so admin panel shows correct breakdown
+            discount_codes: discountCode ? [
+                {
+                    code: discountCode,
+                    amount: (discountAmount / 100).toFixed(2),
+                    type: 'fixed_amount',
+                }
+            ] : [],
         }
     };
 
