@@ -5,6 +5,60 @@
 const SHOPIFY_STORE_DOMAIN = process.env.SHOPIFY_STORE_DOMAIN;
 const SHOPIFY_ADMIN_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
 
+// 3-decimal currencies: Stripe stores amounts with multiplier 1000 (not 100)
+const THREE_DECIMAL_CURRENCIES = ['BHD', 'KWD', 'OMR'];
+
+/**
+ * Get the correct divisor for converting Stripe smallest-unit amounts to decimal.
+ * BHD, KWD, OMR use 3 decimal places (divisor 1000), all others use 2 (divisor 100).
+ */
+function getCurrencyDivisor(currency) {
+    return THREE_DECIMAL_CURRENCIES.includes(currency?.toUpperCase()) ? 1000 : 100;
+}
+
+/**
+ * Get the correct number of decimal places for a currency.
+ */
+function getCurrencyDecimals(currency) {
+    return THREE_DECIMAL_CURRENCIES.includes(currency?.toUpperCase()) ? 3 : 2;
+}
+
+/**
+ * Map UAE emirate names from Stripe to Shopify province codes.
+ * Stripe returns full emirate names; Shopify expects province codes.
+ */
+const UAE_PROVINCE_MAP = {
+    'abu dhabi': 'AZ',
+    'abu zaby': 'AZ',
+    'ajman': 'AJ',
+    'fujairah': 'FU',
+    'al fujairah': 'FU',
+    'ras al-khaimah': 'RK',
+    'ras al khaimah': 'RK',
+    'sharjah': 'SH',
+    'al sharjah': 'SH',
+    'dubai': 'DU',
+    'umm al-quwain': 'UQ',
+    'umm al quwain': 'UQ',
+};
+
+/**
+ * Normalize province/state for Shopify. For UAE, map emirate names to codes.
+ */
+function normalizeProvince(country, state, city) {
+    if (country === 'AE') {
+        // Try state first, then city (Stripe sometimes puts emirate in city)
+        const candidates = [state, city].filter(Boolean);
+        for (const candidate of candidates) {
+            const mapped = UAE_PROVINCE_MAP[candidate.toLowerCase().trim()];
+            if (mapped) return mapped;
+        }
+        // If we still have a state value, return it as-is
+        return state || city || '';
+    }
+    return state || '';
+}
+
 /**
  * Create an order in Shopify after successful Stripe payment
  * @param {Object} orderData - Order details from Stripe checkout
@@ -36,6 +90,18 @@ async function createShopifyOrder(orderData) {
         return { order: null, skipped: true };
     }
 
+    // Use correct divisor based on currency (1000 for BHD/KWD/OMR, 100 for all others)
+    const divisor = getCurrencyDivisor(currency);
+    const decimals = getCurrencyDecimals(currency);
+    console.log(`Currency: ${currency}, divisor: ${divisor}, decimals: ${decimals}`);
+
+    // Normalize province for UAE addresses
+    const province = normalizeProvince(
+        shippingAddress.country,
+        shippingAddress.state,
+        shippingAddress.city
+    );
+
     const shopifyOrder = {
         order: {
             email: customer.email,
@@ -48,34 +114,34 @@ async function createShopifyOrder(orderData) {
             line_items: validLineItems.map(item => ({
                 variant_id: item.variantId,
                 quantity: item.quantity,
-                price: (item.price / 100).toFixed(2), // Convert from cents
+                price: (item.price / divisor).toFixed(decimals),
             })),
             shipping_address: {
                 first_name: shippingAddress.firstName,
                 last_name: shippingAddress.lastName,
-                address1: shippingAddress.line1,
+                address1: shippingAddress.line1 || '',
                 address2: shippingAddress.line2 || '',
-                city: shippingAddress.city,
-                province: shippingAddress.state || '',
-                country: shippingAddress.country,
-                zip: shippingAddress.postalCode,
+                city: shippingAddress.city || '',
+                province: province,
+                country_code: shippingAddress.country,
+                zip: shippingAddress.postalCode || '',
                 phone: shippingAddress.phone || '',
             },
             billing_address: {
                 first_name: shippingAddress.firstName,
                 last_name: shippingAddress.lastName,
-                address1: shippingAddress.line1,
+                address1: shippingAddress.line1 || '',
                 address2: shippingAddress.line2 || '',
-                city: shippingAddress.city,
-                province: shippingAddress.state || '',
-                country: shippingAddress.country,
-                zip: shippingAddress.postalCode,
+                city: shippingAddress.city || '',
+                province: province,
+                country_code: shippingAddress.country,
+                zip: shippingAddress.postalCode || '',
                 phone: shippingAddress.phone || '',
             },
             shipping_lines: [
                 {
                     title: 'International Shipping',
-                    price: (shippingCost / 100).toFixed(2),
+                    price: (shippingCost / divisor).toFixed(decimals),
                     code: 'INTL',
                 }
             ],
@@ -83,7 +149,7 @@ async function createShopifyOrder(orderData) {
                 {
                     kind: 'sale',
                     status: 'success',
-                    amount: (totalAmount / 100).toFixed(2),
+                    amount: (totalAmount / divisor).toFixed(decimals),
                     gateway: 'Stripe',
                 }
             ],
@@ -91,7 +157,7 @@ async function createShopifyOrder(orderData) {
             discount_codes: discountCode ? [
                 {
                     code: discountCode,
-                    amount: (discountAmount / 100).toFixed(2),
+                    amount: (discountAmount / divisor).toFixed(decimals),
                     type: 'fixed_amount',
                 }
             ] : [],
