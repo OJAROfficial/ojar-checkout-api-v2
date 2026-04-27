@@ -97,15 +97,10 @@ async function handleCheckoutComplete(session) {
             console.log('Raw cart_items_json:', metadata?.cart_items_json);
         }
 
-        // Filter out $0-priced items (bundle/gift set components)
-        const originalCount = cartItems.length;
-        cartItems = cartItems.filter(item => item.price > 0);
-        if (originalCount !== cartItems.length) {
-            console.log(`Filtered out ${originalCount - cartItems.length} zero-price items (bundle components)`);
-        }
-
+        // Keep $0 freebies/samples so the Shopify order shows what the customer received.
+        // Only abort if there are no items at all.
         if (cartItems.length === 0) {
-            console.log('SKIPPING: No valid cart items after filtering $0 items, not creating Shopify order');
+            console.log('SKIPPING: No cart items in metadata, not creating Shopify order');
             return;
         }
 

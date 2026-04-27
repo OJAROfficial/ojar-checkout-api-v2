@@ -77,16 +77,17 @@ async function createShopifyOrder(orderData) {
         discountAmount,
     } = orderData;
 
-    // Guard: never create $0 orders
+    // Guard: never create $0 orders (Stripe should never send these, but defend anyway)
     if (!totalAmount || totalAmount <= 0) {
         console.log('SKIPPING: Refusing to create $0 Shopify order (totalAmount:', totalAmount, ')');
         return { order: null, skipped: true };
     }
 
-    // Filter out any $0 line items (bundle/gift set components)
-    const validLineItems = lineItems.filter(item => item.price > 0);
+    // Keep ALL line items including $0 freebies/samples so the Shopify order reflects
+    // what the customer actually received. Only the order total must be > 0.
+    const validLineItems = lineItems;
     if (validLineItems.length === 0) {
-        console.log('SKIPPING: All line items are $0, refusing to create Shopify order');
+        console.log('SKIPPING: No line items, refusing to create Shopify order');
         return { order: null, skipped: true };
     }
 

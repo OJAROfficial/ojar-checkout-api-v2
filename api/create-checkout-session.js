@@ -67,15 +67,16 @@ module.exports = async function handler(req, res) {
         const currencyLower = currency.toLowerCase();
         const currencyMultiplier = CURRENCY_CONFIG[currency].multiplier;
 
-        // Filter out zero-price items (bundle/gift set components sent at $0)
-        const validCartItems = cartItems.filter(item => item.price > 0);
-
-        if (validCartItems.length === 0) {
-            return res.status(400).json({ error: 'No valid items in cart (all items are $0)' });
+        // Reject only if the entire cart is empty. We KEEP $0 items so freebies/samples
+        // appear as line items on the Stripe checkout page (Stripe allows unit_amount: 0
+        // when the session total is > 0).
+        const paidCartItems = cartItems.filter(item => item.price > 0);
+        if (paidCartItems.length === 0) {
+            return res.status(400).json({ error: 'No paid items in cart (cannot create $0 checkout)' });
         }
 
-        // Calculate cart total (prices already in smallest unit from frontend)
-        const cartTotal = validCartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        // Calculate cart total from paid items only (used for shipping threshold)
+        const cartTotal = paidCartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
         // Check if cart contains only test products (skip shipping for testing)
         const isTestOrder = cartItems.every(item =>
@@ -85,8 +86,9 @@ module.exports = async function handler(req, res) {
         // Calculate shipping (skip for test orders)
         const shippingCost = isTestOrder ? 0 : calculateShipping(countryCode || 'US', currency, cartTotal);
 
-        // Build Stripe line items (only valid non-$0 items)
-        const lineItems = validCartItems.map(item => ({
+        // Build Stripe line items — include ALL items (paid + freebies). Freebies render
+        // at $0 on the Stripe page so the customer sees what they're getting.
+        const lineItems = cartItems.map(item => ({
             price_data: {
                 currency: currencyLower,
                 product_data: {
@@ -97,7 +99,7 @@ module.exports = async function handler(req, res) {
                         shopify_variant_id: item.variantId,
                     },
                 },
-                unit_amount: item.price, // Already in smallest unit
+                unit_amount: Math.max(0, Math.round(item.price)),
             },
             quantity: item.quantity,
         }));
@@ -148,10 +150,11 @@ module.exports = async function handler(req, res) {
                 shopify_cart_token: cartToken || '',
                 currency: currency,
                 country_code: countryCode || '',
-                cart_items_json: JSON.stringify(validCartItems.map(item => ({
+                cart_items_json: JSON.stringify(cartItems.map(item => ({
                     variantId: item.variantId,
                     quantity: item.quantity,
                     price: item.price,
+                    title: item.title,
                 }))),
             },
             // Allow customer to adjust quantity at checkout
