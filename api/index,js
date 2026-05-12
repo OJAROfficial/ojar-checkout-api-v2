@@ -1,0 +1,62 @@
+/**
+ * Root handler - serves a simple landing page so Shopify install
+ * doesn't 404 when it hits the root URL during OAuth flow.
+ */
+
+module.exports = (req, res) => {
+    // If Shopify is trying to install (has hmac + shop params), redirect to install
+    if (req.query.hmac && req.query.shop) {
+        // For a public app you'd start OAuth here. For this backend-only setup,
+        // we just show a success page since the actual install is handled
+        // via custom distribution / access token from Partner dashboard.
+        res.setHeader('Content-Type', 'text/html');
+        return res.status(200).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Ojar Checkout API v2</title>
+                <style>
+                    body { font-family: -apple-system, system-ui, sans-serif; max-width: 600px; margin: 80px auto; padding: 20px; text-align: center; }
+                    h1 { color: #2c3e50; }
+                    .status { color: #27ae60; font-weight: bold; }
+                    code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-size: 14px; }
+                </style>
+            </head>
+            <body>
+                <h1>Ojar Checkout API v2</h1>
+                <p class="status">✓ Backend API is running</p>
+                <p>This is a headless backend service. There is no admin UI to install.</p>
+                <p>Shop: <code>${req.query.shop}</code></p>
+                <p>To complete setup, copy the Admin API access token from your Shopify Partner dashboard and add it to Vercel environment variables.</p>
+            </body>
+            </html>
+        `);
+    }
+
+    // Default response for direct visits
+    res.setHeader('Content-Type', 'text/html');
+    return res.status(200).send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Ojar Checkout API v2</title>
+            <style>
+                body { font-family: -apple-system, system-ui, sans-serif; max-width: 600px; margin: 80px auto; padding: 20px; text-align: center; }
+                h1 { color: #2c3e50; }
+                .status { color: #27ae60; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <h1>Ojar Checkout API v2</h1>
+            <p class="status">✓ Backend API is running</p>
+            <p>Available endpoints:</p>
+            <ul style="text-align: left; display: inline-block;">
+                <li>POST /api/create-checkout-session</li>
+                <li>POST /api/webhook</li>
+                <li>GET /api/get-session</li>
+                <li>GET /api/check-inventory</li>
+            </ul>
+        </body>
+        </html>
+    `);
+};
