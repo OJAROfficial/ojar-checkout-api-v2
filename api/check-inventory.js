@@ -17,19 +17,73 @@ const LOCATIONS = {
     '77866500211': 'Saudia warehouse'
 };
 
-async function shopifyFetch(endpoint) {
-    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/${endpoint}`;
-    const response = await fetch(url, {
-        headers: {
-            'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN,
-            'Content-Type': 'application/json'
-        }
-    });
-    if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`Shopify API error (${response.status}): ${text}`);
+// In-memory cache (per Vercel instance)
+// Reduces repeated Shopify calls for the same product within the TTL window
+const cache = new Map();
+const CACHE_TTL_MS = 60 * 1000; // 60 seconds
+
+function getCached(key) {
+    const entry = cache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+        cache.delete(key);
+        return null;
     }
-    return response.json();
+    return entry.data;
+}
+
+function setCached(key, data) {
+    cache.set(key, { data, timestamp: Date.now() });
+    // Prevent unbounded memory growth
+    if (cache.size > 500) {
+        const firstKey = cache.keys().next().value;
+        cache.delete(firstKey);
+    }
+}
+
+/**
+ * Sleep helper for backoff
+ */
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Fetch from Shopify with automatic retry on rate limit (429)
+ * Uses exponential backoff respecting the Retry-After header
+ */
+async function shopifyFetch(endpoint, maxRetries = 2) {
+    const url = `https://${SHOPIFY_STORE_DOMAIN}/admin/api/2024-01/${endpoint}`;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const response = await fetch(url, {
+            headers: {
+                'X-Shopify-Access-Token': SHOPIFY_ADMIN_ACCESS_TOKEN,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        // Handle rate limit
+        if (response.status === 429) {
+            if (attempt === maxRetries) {
+                const err = new Error('Shopify rate limit exceeded after retries');
+                err.code = 'RATE_LIMITED';
+                throw err;
+            }
+            // Respect Retry-After header if present, else exponential backoff
+            const retryAfter = parseFloat(response.headers.get('Retry-After')) || (Math.pow(2, attempt) * 0.5);
+            const waitMs = Math.min(retryAfter * 1000, 3000); // cap at 3 sec
+            console.warn(`[shopifyFetch] 429 received for ${endpoint}, retrying after ${waitMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+            await sleep(waitMs);
+            continue;
+        }
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`Shopify API error (${response.status}): ${text}`);
+        }
+        return response.json();
+    }
 }
 
 module.exports = async (req, res) => {
@@ -61,6 +115,15 @@ module.exports = async (req, res) => {
         });
     }
 
+    // Check in-memory cache first
+    const cacheKey = variant_id ? `v:${variant_id}` : `p:${product_handle}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+        res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
+        res.setHeader('X-Cache', 'HIT');
+        return res.status(200).json(cached);
+    }
+
     try {
         let inventoryItemId;
 
@@ -84,11 +147,28 @@ module.exports = async (req, res) => {
             availability[locName] = level.available > 0;
         }
 
-        // Cache for 60 seconds
+        const response = { availability };
+
+        // Store in cache
+        setCached(cacheKey, response);
+
+        // CDN cache headers
         res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
-        return res.status(200).json({ availability });
+        res.setHeader('X-Cache', 'MISS');
+        return res.status(200).json(response);
 
     } catch (error) {
+        // Handle rate limit gracefully — don't return 500
+        if (error.code === 'RATE_LIMITED') {
+            console.error('[check-inventory] Rate limited by Shopify after retries');
+            res.setHeader('Retry-After', '5');
+            return res.status(503).json({ 
+                error: 'Service temporarily unavailable, please retry',
+                retryAfter: 5
+            });
+        }
+        
+        console.error('[check-inventory] Error:', error.message);
         return res.status(500).json({ error: error.message });
     }
 };
