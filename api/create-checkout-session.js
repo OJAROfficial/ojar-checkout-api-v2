@@ -155,6 +155,7 @@ module.exports = async function handler(req, res) {
                     quantity: item.quantity,
                     price: item.price,
                     title: item.title,
+                    properties: item.properties || {},
                 }))),
             },
             // Allow customer to adjust quantity at checkout
