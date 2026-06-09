@@ -112,11 +112,23 @@ async function createShopifyOrder(orderData) {
             note: `Stripe Payment ID: ${stripePaymentIntentId}`,
             tags: 'stripe-checkout, multi-currency',
             currency: currency,
-            line_items: validLineItems.map(item => ({
-                variant_id: item.variantId,
-                quantity: item.quantity,
-                price: (item.price / divisor).toFixed(decimals),
-            })),
+            line_items: validLineItems.map(item => {
+                const lineItem = {
+                    variant_id: item.variantId,
+                    quantity: item.quantity,
+                    price: (item.price / divisor).toFixed(decimals),
+                };
+                
+                // Add gift box properties as line item properties (if present)
+                if (item.properties && Object.keys(item.properties).length > 0) {
+                    lineItem.properties = Object.entries(item.properties).map(([name, value]) => ({
+                        name: name,
+                        value: String(value)
+                    }));
+                }
+                
+                return lineItem;
+            }),
             shipping_address: {
                 first_name: shippingAddress.firstName,
                 last_name: shippingAddress.lastName,
