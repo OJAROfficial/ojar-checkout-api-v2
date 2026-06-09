@@ -7,6 +7,31 @@
  */
 
 const stripe = require('./utils/stripe');
+
+/**
+ * Compact gift box properties to fit Stripe metadata 500-char limit.
+ * Maps full property names to short keys.
+ * Empty object returned if no gift box properties (regular products).
+ */
+
+function compactGiftBoxProps(props) {
+    if (!props || typeof props !== 'object' || Object.keys(props).length === 0) {
+        return {};
+    }
+    
+    const compact = {};
+    if (props._gift_box) compact.gb = props._gift_box;
+    if (props._gift_box_type) compact.gbt = props._gift_box_type;
+    if (props._gift_box_name) compact.gbn = props._gift_box_name;
+    if (props._gift_box_group_id) compact.gbg = props._gift_box_group_id;
+    if (props._gift_box_discount_percent) compact.gbd = props._gift_box_discount_percent;
+    if (props._gift_box_item_index) compact.gbi = props._gift_box_item_index;
+    if (props._gift_box_total_items) compact.gbtot = props._gift_box_total_items;
+    
+    return compact;
+}
+
+
 const { calculateShipping } = require('./utils/shipping');
 
 // Currency configuration
@@ -155,7 +180,7 @@ module.exports = async function handler(req, res) {
                     quantity: item.quantity,
                     price: item.price,
                     title: item.title,
-                    properties: item.properties || {},
+                    properties: compactGiftBoxProps(item.properties),
                 }))),
             },
             // Allow customer to adjust quantity at checkout
