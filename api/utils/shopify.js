@@ -122,13 +122,13 @@ async function createShopifyOrder(orderData) {
                 // Expand compacted gift box properties back to full names for Shopify line items
                 if (item.properties && Object.keys(item.properties).length > 0) {
                     const expandedProps = {};
-                    if (item.properties.gb) expandedProps._gift_box = item.properties.gb;
-                    if (item.properties.gbt) expandedProps._gift_box_type = item.properties.gbt;
-                    if (item.properties.gbn) expandedProps._gift_box_name = item.properties.gbn;
-                    if (item.properties.gbg) expandedProps._gift_box_group_id = item.properties.gbg;
-                    if (item.properties.gbd) expandedProps._gift_box_discount_percent = item.properties.gbd;
-                    if (item.properties.gbi) expandedProps._gift_box_item_index = item.properties.gbi;
-                    if (item.properties.gbtot) expandedProps._gift_box_total_items = item.properties.gbtot;
+                    if (item.properties.b) expandedProps._gift_box = item.properties.b;
+                    if (item.properties.t) expandedProps._gift_box_type = item.properties.t;
+                    if (item.properties.n) expandedProps._gift_box_name = item.properties.n;
+                    if (item.properties.g) expandedProps._gift_box_group_id = item.properties.g;
+                    if (item.properties.d) expandedProps._gift_box_discount_percent = item.properties.d;
+                    if (item.properties.i) expandedProps._gift_box_item_index = item.properties.i;
+                    if (item.properties.tt) expandedProps._gift_box_total_items = item.properties.tt;
                     
                     if (Object.keys(expandedProps).length > 0) {
                         lineItem.properties = Object.entries(expandedProps).map(([name, value]) => ({
