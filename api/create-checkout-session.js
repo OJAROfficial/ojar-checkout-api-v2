@@ -20,13 +20,13 @@ function compactGiftBoxProps(props) {
     }
     
     const compact = {};
-    if (props._gift_box) compact.gb = props._gift_box;
-    if (props._gift_box_type) compact.gbt = props._gift_box_type;
-    if (props._gift_box_name) compact.gbn = props._gift_box_name;
-    if (props._gift_box_group_id) compact.gbg = props._gift_box_group_id;
-    if (props._gift_box_discount_percent) compact.gbd = props._gift_box_discount_percent;
-    if (props._gift_box_item_index) compact.gbi = props._gift_box_item_index;
-    if (props._gift_box_total_items) compact.gbtot = props._gift_box_total_items;
+    if (props._gift_box) compact.b = props._gift_box;
+    if (props._gift_box_type) compact.t = props._gift_box_type;
+    if (props._gift_box_name) compact.n = props._gift_box_name;
+    if (props._gift_box_group_id) compact.g = props._gift_box_group_id;
+    if (props._gift_box_discount_percent) compact.d = props._gift_box_discount_percent;
+    if (props._gift_box_item_index) compact.i = props._gift_box_item_index;
+    if (props._gift_box_total_items) compact.tt = props._gift_box_total_items;
     
     return compact;
 }
