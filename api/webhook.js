@@ -87,15 +87,76 @@ async function handleCheckoutComplete(session) {
         console.log('Customer email:', customer_details?.email);
         console.log('Metadata:', JSON.stringify(metadata));
 
-        // Parse cart items from metadata
-        let cartItems = [];
-        try {
-            cartItems = JSON.parse(metadata?.cart_items_json || '[]');
-            console.log('Parsed cart items:', cartItems.length, 'items');
-        } catch (e) {
-            console.error('Failed to parse cart items:', e);
-            console.log('Raw cart_items_json:', metadata?.cart_items_json);
-        }
+            // Parse cart items from metadata (supports both new chunks format and old format)
+            let cartItems = [];
+            let giftBoxData = null;
+            
+            try {
+                // Parse gift box group data (NEW format)
+                if (metadata?.gift_box_data) {
+                    giftBoxData = JSON.parse(metadata.gift_box_data);
+                    console.log('Gift box data:', giftBoxData);
+                }
+                
+                // Determine if cart items are split into chunks
+                const chunks = parseInt(metadata?.cart_items_chunks || '0');
+                let rawItems = [];
+                
+                if (chunks > 0) {
+                    // Reassemble from chunks (NEW format for large carts)
+                    console.log('Reassembling cart items from', chunks, 'chunks');
+                    for (let i = 0; i < chunks; i++) {
+                        const chunkJson = metadata[`cart_items_${i}`];
+                        if (chunkJson) {
+                            rawItems = rawItems.concat(JSON.parse(chunkJson));
+                        }
+                    }
+                } else {
+                    // Single field (NEW format under 500 chars OR OLD format)
+                    rawItems = JSON.parse(metadata?.cart_items_json || '[]');
+                }
+                
+                // Process each item with backward compatibility
+                cartItems = rawItems.map(item => {
+                    const expanded = {
+                        variantId: item.v || item.variantId,
+                        quantity: item.q || item.quantity,
+                        price: item.p || item.price,
+                        title: item.t || item.title,
+                        properties: {}
+                    };
+                    
+                    // NEW FORMAT: gift_box_data + item index (i)
+                    if (giftBoxData && item.i) {
+                        expanded.properties = {
+                            _gift_box: 'true',
+                            _gift_box_type: giftBoxData.type,
+                            _gift_box_name: giftBoxData.name,
+                            _gift_box_group_id: giftBoxData.groupId,
+                            _gift_box_discount_percent: giftBoxData.discount,
+                            _gift_box_item_index: item.i,
+                            _gift_box_total_items: giftBoxData.total
+                        };
+                    }
+                    // OLD FORMAT: properties object with short keys (b, t, n, g, d, i, tt)
+                    else if (item.properties && typeof item.properties === 'object' && Object.keys(item.properties).length > 0) {
+                        if (item.properties.b) expanded.properties._gift_box = item.properties.b;
+                        if (item.properties.t) expanded.properties._gift_box_type = item.properties.t;
+                        if (item.properties.n) expanded.properties._gift_box_name = item.properties.n;
+                        if (item.properties.g) expanded.properties._gift_box_group_id = item.properties.g;
+                        if (item.properties.d) expanded.properties._gift_box_discount_percent = item.properties.d;
+                        if (item.properties.i) expanded.properties._gift_box_item_index = item.properties.i;
+                        if (item.properties.tt) expanded.properties._gift_box_total_items = item.properties.tt;
+                    }
+                    
+                    return expanded;
+                });
+                
+                console.log('Parsed cart items:', cartItems.length, 'items');
+            } catch (e) {
+                console.error('Failed to parse cart items:', e);
+                console.log('Raw metadata:', JSON.stringify(metadata));
+            }
 
         // Keep $0 freebies/samples so the Shopify order shows what the customer received.
         // Only abort if there are no items at all.
