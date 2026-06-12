@@ -119,23 +119,13 @@ async function createShopifyOrder(orderData) {
                     price: (item.price / divisor).toFixed(decimals),
                 };
             
-                // Expand compacted gift box properties back to full names for Shopify line items
+                // Properties already expanded in webhook with full _gift_box_* names
+                // Just map to Shopify line item properties format
                 if (item.properties && Object.keys(item.properties).length > 0) {
-                    const expandedProps = {};
-                    if (item.properties.b) expandedProps._gift_box = item.properties.b;
-                    if (item.properties.t) expandedProps._gift_box_type = item.properties.t;
-                    if (item.properties.n) expandedProps._gift_box_name = item.properties.n;
-                    if (item.properties.g) expandedProps._gift_box_group_id = item.properties.g;
-                    if (item.properties.d) expandedProps._gift_box_discount_percent = item.properties.d;
-                    if (item.properties.i) expandedProps._gift_box_item_index = item.properties.i;
-                    if (item.properties.tt) expandedProps._gift_box_total_items = item.properties.tt;
-                    
-                    if (Object.keys(expandedProps).length > 0) {
-                        lineItem.properties = Object.entries(expandedProps).map(([name, value]) => ({
-                            name: name,
-                            value: String(value)
-                        }));
-                    }
+                    lineItem.properties = Object.entries(item.properties).map(([name, value]) => ({
+                        name: name,
+                        value: String(value)
+                    }));
                 }
                 
                 return lineItem;
