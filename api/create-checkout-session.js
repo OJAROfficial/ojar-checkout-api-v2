@@ -9,26 +9,22 @@
 const stripe = require('./utils/stripe');
 
 /**
- * Compact gift box properties to fit Stripe metadata 500-char limit.
- * Maps full property names to short keys.
- * Empty object returned if no gift box properties (regular products).
+ * Extract gift box group data (shared across all items in a gift box).
+ * Returns null if no gift box detected in cart.
  */
-
-function compactGiftBoxProps(props) {
-    if (!props || typeof props !== 'object' || Object.keys(props).length === 0) {
-        return {};
+function extractGiftBoxData(cartItems) {
+    for (const item of cartItems) {
+        if (item.properties && item.properties._gift_box === 'true') {
+            return {
+                type: item.properties._gift_box_type || '',
+                name: item.properties._gift_box_name || '',
+                groupId: item.properties._gift_box_group_id || '',
+                discount: item.properties._gift_box_discount_percent || '',
+                total: item.properties._gift_box_total_items || ''
+            };
+        }
     }
-    
-    const compact = {};
-    if (props._gift_box) compact.b = props._gift_box;
-    if (props._gift_box_type) compact.t = props._gift_box_type;
-    if (props._gift_box_name) compact.n = props._gift_box_name;
-    if (props._gift_box_group_id) compact.g = props._gift_box_group_id;
-    if (props._gift_box_discount_percent) compact.d = props._gift_box_discount_percent;
-    if (props._gift_box_item_index) compact.i = props._gift_box_item_index;
-    if (props._gift_box_total_items) compact.tt = props._gift_box_total_items;
-    
-    return compact;
+    return null;
 }
 
 
@@ -144,6 +140,74 @@ module.exports = async function handler(req, res) {
             });
         }
 
+        // Build metadata with smart chunking for large gift box carts
+        const sessionMetadata = (function() {
+            const meta = {
+                shopify_cart_token: cartToken || '',
+                currency: currency,
+                country_code: countryCode || '',
+            };
+            
+            // Extract gift box group data (shared across all items in a gift box)
+            const giftBoxData = extractGiftBoxData(cartItems);
+            if (giftBoxData) {
+                meta.gift_box_data = JSON.stringify(giftBoxData);
+            }
+            
+            // Build minimal cart items (only per-item data, drop redundant gift box fields)
+            const compactItems = cartItems.map(item => {
+                const compact = {
+                    v: item.variantId,
+                    q: item.quantity,
+                    p: item.price,
+                    t: item.title,
+                };
+                // Per-item gift box data (only item index)
+                if (item.properties && item.properties._gift_box === 'true') {
+                    compact.i = item.properties._gift_box_item_index || '';
+                }
+                return compact;
+            });
+            
+            // Try single field first
+            const singleJson = JSON.stringify(compactItems);
+            
+            if (singleJson.length <= 500) {
+                // Fits in single metadata field
+                meta.cart_items_json = singleJson;
+                meta.cart_items_chunks = '0';
+            } else {
+                // Split into chunks (max 480 chars per chunk for safety)
+                let chunkIndex = 0;
+                let currentChunk = [];
+                let currentSize = 2; // for [] brackets
+                
+                for (const item of compactItems) {
+                    const itemJson = JSON.stringify(item);
+                    // If adding this item exceeds limit, finalize current chunk
+                    if (currentSize + itemJson.length + 1 > 480 && currentChunk.length > 0) {
+                        meta[`cart_items_${chunkIndex}`] = JSON.stringify(currentChunk);
+                        chunkIndex++;
+                        currentChunk = [item];
+                        currentSize = itemJson.length + 2;
+                    } else {
+                        currentChunk.push(item);
+                        currentSize += itemJson.length + 1; // +1 for comma
+                    }
+                }
+                
+                // Save last chunk
+                if (currentChunk.length > 0) {
+                    meta[`cart_items_${chunkIndex}`] = JSON.stringify(currentChunk);
+                    chunkIndex++;
+                }
+                
+                meta.cart_items_chunks = String(chunkIndex);
+            }
+            
+            return meta;
+        })();
+
         // Create Stripe Checkout session
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
@@ -171,18 +235,7 @@ module.exports = async function handler(req, res) {
                     'US',
                 ],
             },
-            metadata: {
-                shopify_cart_token: cartToken || '',
-                currency: currency,
-                country_code: countryCode || '',
-                cart_items_json: JSON.stringify(cartItems.map(item => ({
-                    variantId: item.variantId,
-                    quantity: item.quantity,
-                    price: item.price,
-                    title: item.title,
-                    properties: compactGiftBoxProps(item.properties),
-                }))),
-            },
+            metadata: sessionMetadata,
             // Allow customer to adjust quantity at checkout
             allow_promotion_codes: true,
         });
