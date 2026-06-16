@@ -117,11 +117,14 @@ async function handleCheckoutComplete(session) {
                 }
                 
                 // Process each item with backward compatibility
+                // CRITICAL: Use !== undefined check instead of || operator
+                // Reason: 0 || undefined returns undefined (JS falsy quirk)
+                // This was causing free items ($0 price) to have undefined price -> Shopify rejection
                 cartItems = rawItems.map(item => {
                     const expanded = {
                         variantId: item.v || item.variantId,
-                        quantity: item.q || item.quantity,
-                        price: item.p || item.price,
+                        quantity: (item.q !== undefined ? item.q : item.quantity) || 1,
+                        price: (item.p !== undefined ? item.p : item.price) || 0,
                         title: item.t || item.title,
                         properties: {}
                     };
