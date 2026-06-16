@@ -95,13 +95,16 @@ module.exports = async function handler(req, res) {
                 );
 
                 // Merge cart data (has variant IDs + properties) with Stripe data (has images)
+                // CRITICAL: Use !== undefined check instead of || operator
+                // Reason: 0 || undefined returns undefined (JS falsy quirk)
+                // This was causing free items ($0 price) to have undefined price
                 items = cartItems.map((cartItem, index) => {
                     const stripeItem = stripeLineItems[index];
                     
                     // Support both new format (v, q, p, t, i) and old format (variantId, quantity, price, name)
                     const variantId = cartItem.v || cartItem.variantId;
-                    const quantity = cartItem.q || cartItem.quantity;
-                    const price = cartItem.p || cartItem.price;
+                    const quantity = (cartItem.q !== undefined ? cartItem.q : cartItem.quantity) || 1;
+                    const price = (cartItem.p !== undefined ? cartItem.p : cartItem.price) || 0;
                     const name = cartItem.t || cartItem.name || cartItem.title || stripeItem?.price.product.name;
                     const itemIndex = cartItem.i;
                     
