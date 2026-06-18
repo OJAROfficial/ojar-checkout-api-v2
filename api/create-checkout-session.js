@@ -4,6 +4,8 @@
  * 
  * Receives cart data from Shopify theme, creates a Stripe Checkout session
  * with the customer's selected currency and shipping calculated.
+ * 
+ * Gift box bundles automatically get 30% discount on gift box items only.
  */
 
 const stripe = require('./utils/stripe');
@@ -208,8 +210,63 @@ module.exports = async function handler(req, res) {
             return meta;
         })();
 
-        // Create Stripe Checkout session
-        const session = await stripe.checkout.sessions.create({
+        // ===== GIFT BOX 30% DISCOUNT LOGIC =====
+        // Apply 30% discount ONLY to gift box items (regular products stay full price)
+        let sessionDiscounts = null;
+        
+        const giftBoxItems = cartItems.filter(item => 
+            item.properties && item.properties._gift_box === 'true'
+        );
+        
+        if (giftBoxItems.length > 0) {
+            try {
+                // Calculate gift box subtotal (only gift box items, not regular products)
+                const giftBoxSubtotal = giftBoxItems.reduce(
+                    (sum, item) => sum + (item.price * item.quantity), 0
+                );
+                
+                // Calculate 30% discount amount
+                const discountAmount = Math.round(giftBoxSubtotal * 0.30);
+                
+                // Get gift box name for coupon label
+                const giftBoxName = giftBoxItems[0].properties._gift_box_name || 'Gift Box';
+                
+                console.log('[CreateSession] Gift box detected:', {
+                    items: giftBoxItems.length,
+                    subtotal: giftBoxSubtotal,
+                    discount: discountAmount,
+                    currency: currency,
+                    name: giftBoxName
+                });
+                
+                // Create one-time fixed-amount coupon
+                // Using fixed amount (not percentage) to ensure discount applies ONLY to gift box items
+                const coupon = await stripe.coupons.create({
+                    amount_off: discountAmount,
+                    currency: currencyLower,
+                    duration: 'once',
+                    name: `${giftBoxName} - 30% Bundle Discount`,
+                    metadata: {
+                        gift_box_type: giftBoxItems[0].properties._gift_box_type || '',
+                        gift_box_group_id: giftBoxItems[0].properties._gift_box_group_id || '',
+                        gift_box_subtotal: String(giftBoxSubtotal),
+                        applied_via: 'auto_gift_box_bundle'
+                    }
+                });
+                
+                sessionDiscounts = [{ coupon: coupon.id }];
+                console.log('[CreateSession] Coupon created:', coupon.id);
+                
+            } catch (couponError) {
+                console.error('[CreateSession] Coupon creation failed:', couponError);
+                console.error('Continuing without discount to avoid blocking checkout');
+                // Continue without discount - don't block checkout
+                sessionDiscounts = null;
+            }
+        }
+
+        // Build Stripe Checkout session config
+        const sessionConfig = {
             payment_method_types: ['card'],
             line_items: lineItems,
             mode: 'payment',
@@ -236,9 +293,18 @@ module.exports = async function handler(req, res) {
                 ],
             },
             metadata: sessionMetadata,
-            // Allow customer to adjust quantity at checkout
-            allow_promotion_codes: true,
-        });
+        };
+
+        // Apply discounts vs allow_promotion_codes (Stripe restriction: mutually exclusive)
+        if (sessionDiscounts) {
+            sessionConfig.discounts = sessionDiscounts;
+            // Note: When auto-discount applied, customer cannot enter manual promo codes
+        } else {
+            sessionConfig.allow_promotion_codes = true;
+        }
+
+        // Create Stripe Checkout session
+        const session = await stripe.checkout.sessions.create(sessionConfig);
 
         // Return the checkout session URL
         return res.status(200).json({
