@@ -265,6 +265,65 @@ module.exports = async function handler(req, res) {
             }
         }
 
+        // ===== TRAVEL COLLECTION QUANTITY DISCOUNT =====
+        // Items tagged 'Travel' (frontend sends isTravel: true) get a quantity-based discount:
+        //   2 travel items = 10%, 3 = 15%, 4+ = 25%. Counts total travel quantity.
+        // Valid until 31 July 2026 (end of day UTC). Applies ONLY to travel items' subtotal.
+        // Skipped if a gift-box discount is already applied (no stacking).
+        // Fully wrapped in try/catch: any failure => checkout continues with NO discount (never blocks).
+        if (!sessionDiscounts) {
+            try {
+                // Offer expiry: 31 July 2026, 23:59:59 UTC (month index 6 = July)
+                const TRAVEL_OFFER_END = Date.UTC(2026, 6, 31, 23, 59, 59);
+                const nowUtc = Date.now();
+
+                if (nowUtc <= TRAVEL_OFFER_END) {
+                    const travelItems = cartItems.filter(it => it.isTravel === true && it.price > 0);
+                    const travelQty = travelItems.reduce((sum, it) => sum + (it.quantity || 0), 0);
+
+                    let travelPct = 0;
+                    if (travelQty >= 4) travelPct = 0.25;
+                    else if (travelQty === 3) travelPct = 0.15;
+                    else if (travelQty === 2) travelPct = 0.10;
+
+                    if (travelPct > 0) {
+                        const travelSubtotal = travelItems.reduce(
+                            (sum, it) => sum + (it.price * it.quantity), 0
+                        );
+                        const travelDiscountAmount = Math.round(travelSubtotal * travelPct);
+
+                        if (travelDiscountAmount > 0) {
+                            const travelCoupon = await stripe.coupons.create({
+                                amount_off: travelDiscountAmount,
+                                currency: currencyLower,
+                                duration: 'once',
+                                name: `Travel Offer - ${Math.round(travelPct * 100)}% Off`,
+                                metadata: {
+                                    applied_via: 'auto_travel_quantity',
+                                    travel_qty: String(travelQty),
+                                    travel_pct: String(travelPct),
+                                    travel_subtotal: String(travelSubtotal),
+                                }
+                            });
+
+                            sessionDiscounts = [{ coupon: travelCoupon.id }];
+                            console.log('[CreateSession] Travel discount applied:', {
+                                qty: travelQty,
+                                pct: travelPct,
+                                subtotal: travelSubtotal,
+                                discount: travelDiscountAmount,
+                                currency: currency
+                            });
+                        }
+                    }
+                }
+            } catch (travelErr) {
+                console.error('[CreateSession] Travel discount failed (continuing without):', travelErr);
+                // Never block checkout — leave sessionDiscounts as-is (null)
+                sessionDiscounts = sessionDiscounts || null;
+            }
+        }
+
         // Build Stripe Checkout session config
         const sessionConfig = {
             payment_method_types: ['card'],
