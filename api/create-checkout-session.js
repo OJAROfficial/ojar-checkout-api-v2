@@ -241,11 +241,15 @@ module.exports = async function handler(req, res) {
                 
                 // Create one-time fixed-amount coupon
                 // Using fixed amount (not percentage) to ensure discount applies ONLY to gift box items
+                // FIX: Stripe coupon name has 40 char limit — shortened from "30% Bundle Discount" to "30% OFF"
+                // and added .substring(0, 40) as safety net for future longer box names
+                const couponName = `${giftBoxName} - 30% OFF`.substring(0, 40);
+                
                 const coupon = await stripe.coupons.create({
                     amount_off: discountAmount,
                     currency: currencyLower,
                     duration: 'once',
-                    name: `${giftBoxName} - 30% Bundle Discount`,
+                    name: couponName,
                     metadata: {
                         gift_box_type: giftBoxItems[0].properties._gift_box_type || '',
                         gift_box_group_id: giftBoxItems[0].properties._gift_box_group_id || '',
@@ -293,11 +297,12 @@ module.exports = async function handler(req, res) {
                         const travelDiscountAmount = Math.round(travelSubtotal * travelPct);
 
                         if (travelDiscountAmount > 0) {
+                            const travelCouponName = `Travel Offer - ${Math.round(travelPct * 100)}% Off`.substring(0, 40);
                             const travelCoupon = await stripe.coupons.create({
                                 amount_off: travelDiscountAmount,
                                 currency: currencyLower,
                                 duration: 'once',
-                                name: `Travel Offer - ${Math.round(travelPct * 100)}% Off`,
+                                name: travelCouponName,
                                 metadata: {
                                     applied_via: 'auto_travel_quantity',
                                     travel_qty: String(travelQty),
