@@ -4,10 +4,15 @@
  * 
  * Handles Stripe webhook events, specifically checkout.session.completed
  * to create orders in Shopify after successful payment.
+ *
+ * Also marks the matching Supabase abandoned-checkout row as 'completed'
+ * so a paid customer never receives a recovery email.
+ * That step is fully non-blocking and runs AFTER the Shopify order is created.
  */
 
 const stripe = require('./utils/stripe');
 const { createShopifyOrder } = require('./utils/shopify');
+const { markCheckoutCompleted } = require('./utils/supabase');
 
 // Disable body parsing - Stripe requires raw body for signature verification
 module.exports.config = {
@@ -73,6 +78,14 @@ module.exports = async function handler(req, res) {
 async function handleCheckoutComplete(session) {
     console.log('=== WEBHOOK: Processing checkout ===');
     console.log('Session ID:', session.id);
+
+    // Mark the abandoned-checkout row as completed as early as it is safe to do so.
+    // Wrapped so a Supabase problem can never stop the Shopify order from being created.
+    try {
+        await markCheckoutCompleted(session.id);
+    } catch (supaErr) {
+        console.warn('[Webhook] Supabase markCheckoutCompleted skipped:', supaErr.message);
+    }
 
     try {
         // Get full session with line items
