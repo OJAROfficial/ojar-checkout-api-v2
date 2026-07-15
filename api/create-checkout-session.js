@@ -388,7 +388,7 @@ module.exports = async function handler(req, res) {
                         price: i.price,
                         image: i.image || null,
                     })),
-                    cartTotal: session.amount_total || 0,
+                    cartTotal: (session.amount_total || 0) / currencyMultiplier,
                     currency: currency,
                 });
 
