@@ -6,9 +6,13 @@
  * with the customer's selected currency and shipping calculated.
  * 
  * Gift box bundles automatically get 30% discount on gift box items only.
+ * Travel-tagged items get a quantity-based discount (no stacking with gift box).
+ * Abandoned checkouts (email + cart) are recorded in Supabase — never blocks checkout.
  */
 
+
 const stripe = require('./utils/stripe');
+const { createAbandonedCheckout, attachCheckoutId } = require('./utils/supabase');
 
 /**
  * Extract gift box group data (shared across all items in a gift box).
@@ -369,6 +373,35 @@ module.exports = async function handler(req, res) {
 
         // Create Stripe Checkout session
         const session = await stripe.checkout.sessions.create(sessionConfig);
+
+        // ===== ABANDONED CHECKOUT TRACKING (Supabase) =====
+        // Records email + cart so a recovery email can be sent if payment is never completed.
+        // Fully non-blocking: any failure here must never affect the checkout redirect.
+        try {
+            if (customerEmail) {
+                const rowId = await createAbandonedCheckout({
+                    email: customerEmail,
+                    cartItems: cartItems.map(i => ({
+                        title: i.title,
+                        handle: i.handle,
+                        quantity: i.quantity,
+                        price: i.price,
+                        image: i.image || null,
+                    })),
+                    cartTotal: session.amount_total || 0,
+                    currency: currency,
+                });
+
+                if (rowId) {
+                    await attachCheckoutId(rowId, session.id);
+                }
+            } else {
+                console.log('[CreateSession] No customerEmail provided, skipping abandoned checkout record');
+            }
+        } catch (abandonErr) {
+            console.warn('[CreateSession] Abandoned checkout tracking skipped:', abandonErr.message);
+        }
+        // ===== END ABANDONED CHECKOUT TRACKING =====
 
         // Return the checkout session URL
         return res.status(200).json({
