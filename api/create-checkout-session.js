@@ -281,8 +281,11 @@ module.exports = async function handler(req, res) {
         // Fully wrapped in try/catch: any failure => checkout continues with NO discount (never blocks).
         if (!sessionDiscounts) {
             try {
-                // Offer expiry: 31 July 2026, 23:59:59 UTC (month index 6 = July)
-                const TRAVEL_OFFER_END = Date.UTC(2026, 6, 31, 23, 59, 59);
+                
+                // OFFER PAUSED (client request, 16 July 2026) — date set to the past so no discount applies.
+                // To re-enable: change back to Date.UTC(2026, 6, 31, 23, 59, 59) or any future date.
+                const TRAVEL_OFFER_END = Date.UTC(2026, 0, 1, 0, 0, 0);
+                
                 const nowUtc = Date.now();
 
                 if (nowUtc <= TRAVEL_OFFER_END) {
