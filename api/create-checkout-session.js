@@ -6,7 +6,7 @@
  * with the customer's selected currency and shipping calculated.
  * 
  * Gift box bundles automatically get 30% discount on gift box items only.
- * Travel-tagged items get a quantity-based discount (no stacking with gift box).
+ * Absolute Oils-tagged items get a quantity-based discount (no stacking with gift box).
  * Abandoned checkouts (email + cart) are recorded in Supabase — never blocks checkout.
  */
 
@@ -273,64 +273,64 @@ module.exports = async function handler(req, res) {
             }
         }
 
-        // ===== TRAVEL COLLECTION QUANTITY DISCOUNT =====
-        // Items tagged 'Travel' (frontend sends isTravel: true) get a quantity-based discount:
-        //   2 travel items = 10%, 3 = 15%, 4+ = 25%. Counts total travel quantity.
-        // Valid until 31 July 2026 (end of day UTC). Applies ONLY to travel items' subtotal.
+        // ===== ABSOLUTE OILS QUANTITY DISCOUNT =====
+        // Items tagged 'absolute-oil' (frontend sends isAbsolute: true) get a quantity-based discount:
+        //   1 item = 10%, 2 = 25%, 3+ = 40%. Counts total absolute-oil quantity.
+        // Applies ONLY to absolute-oil items' subtotal (regular products stay full price).
+        // Campaign window: 1 September 2026 (00:00 UTC) to 30 September 2026 (23:59:59 UTC).
         // Skipped if a gift-box discount is already applied (no stacking).
         // Fully wrapped in try/catch: any failure => checkout continues with NO discount (never blocks).
         if (!sessionDiscounts) {
             try {
-                
-                // OFFER PAUSED (client request, 16 July 2026) — date set to the past so no discount applies.
-                // To re-enable: change back to Date.UTC(2026, 6, 31, 23, 59, 59) or any future date.
-                const TRAVEL_OFFER_END = Date.UTC(2026, 0, 1, 0, 0, 0);
-                
+                // Campaign start/end (UTC). Month is 0-indexed: 8 = September.
+                // To change the campaign window, edit these two dates.
+                const ABSOLUTE_OFFER_START = Date.UTC(2026, 8, 1, 0, 0, 0);    // 1 Sept 2026
+                const ABSOLUTE_OFFER_END   = Date.UTC(2026, 8, 30, 23, 59, 59); // 30 Sept 2026
                 const nowUtc = Date.now();
 
-                if (nowUtc <= TRAVEL_OFFER_END) {
-                    const travelItems = cartItems.filter(it => it.isTravel === true && it.price > 0);
-                    const travelQty = travelItems.reduce((sum, it) => sum + (it.quantity || 0), 0);
+                if (nowUtc >= ABSOLUTE_OFFER_START && nowUtc <= ABSOLUTE_OFFER_END) {
+                    const absoluteItems = cartItems.filter(it => it.isAbsolute === true && it.price > 0);
+                    const absoluteQty = absoluteItems.reduce((sum, it) => sum + (it.quantity || 0), 0);
 
-                    let travelPct = 0;
-                    if (travelQty >= 4) travelPct = 0.25;
-                    else if (travelQty === 3) travelPct = 0.15;
-                    else if (travelQty === 2) travelPct = 0.10;
+                    let absolutePct = 0;
+                    if (absoluteQty >= 3) absolutePct = 0.40;
+                    else if (absoluteQty === 2) absolutePct = 0.25;
+                    else if (absoluteQty === 1) absolutePct = 0.10;
 
-                    if (travelPct > 0) {
-                        const travelSubtotal = travelItems.reduce(
+                    if (absolutePct > 0) {
+                        const absoluteSubtotal = absoluteItems.reduce(
                             (sum, it) => sum + (it.price * it.quantity), 0
                         );
-                        const travelDiscountAmount = Math.round(travelSubtotal * travelPct);
+                        const absoluteDiscountAmount = Math.round(absoluteSubtotal * absolutePct);
 
-                        if (travelDiscountAmount > 0) {
-                            const travelCouponName = `Travel Offer - ${Math.round(travelPct * 100)}% Off`.substring(0, 40);
-                            const travelCoupon = await stripe.coupons.create({
-                                amount_off: travelDiscountAmount,
+                        if (absoluteDiscountAmount > 0) {
+                            const absoluteCouponName = `Absolute Oils - ${Math.round(absolutePct * 100)}% Off`.substring(0, 40);
+                            const absoluteCoupon = await stripe.coupons.create({
+                                amount_off: absoluteDiscountAmount,
                                 currency: currencyLower,
                                 duration: 'once',
-                                name: travelCouponName,
+                                name: absoluteCouponName,
                                 metadata: {
-                                    applied_via: 'auto_travel_quantity',
-                                    travel_qty: String(travelQty),
-                                    travel_pct: String(travelPct),
-                                    travel_subtotal: String(travelSubtotal),
+                                    applied_via: 'auto_absolute_quantity',
+                                    absolute_qty: String(absoluteQty),
+                                    absolute_pct: String(absolutePct),
+                                    absolute_subtotal: String(absoluteSubtotal),
                                 }
                             });
 
-                            sessionDiscounts = [{ coupon: travelCoupon.id }];
-                            console.log('[CreateSession] Travel discount applied:', {
-                                qty: travelQty,
-                                pct: travelPct,
-                                subtotal: travelSubtotal,
-                                discount: travelDiscountAmount,
+                            sessionDiscounts = [{ coupon: absoluteCoupon.id }];
+                            console.log('[CreateSession] Absolute Oils discount applied:', {
+                                qty: absoluteQty,
+                                pct: absolutePct,
+                                subtotal: absoluteSubtotal,
+                                discount: absoluteDiscountAmount,
                                 currency: currency
                             });
                         }
                     }
                 }
-            } catch (travelErr) {
-                console.error('[CreateSession] Travel discount failed (continuing without):', travelErr);
+            } catch (absoluteErr) {
+                console.error('[CreateSession] Absolute discount failed (continuing without):', absoluteErr);
                 // Never block checkout — leave sessionDiscounts as-is (null)
                 sessionDiscounts = sessionDiscounts || null;
             }
