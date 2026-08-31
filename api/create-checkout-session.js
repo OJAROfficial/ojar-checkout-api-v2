@@ -284,7 +284,8 @@ module.exports = async function handler(req, res) {
             try {
                 // Campaign start/end (UTC). Month is 0-indexed: 8 = September.
                 // To change the campaign window, edit these two dates.
-                const ABSOLUTE_OFFER_START = Date.UTC(2026, 8, 1, 0, 0, 0);    // 1 Sept 2026
+                // const ABSOLUTE_OFFER_START = Date.UTC(2026, 8, 1, 0, 0, 0);    // 1 Sept 2026
+                                const ABSOLUTE_OFFER_START = Date.UTC(2026, 7, 31, 0, 0, 0);    // TEST: 31 Aug
                 const ABSOLUTE_OFFER_END   = Date.UTC(2026, 8, 30, 23, 59, 59); // 30 Sept 2026
                 const nowUtc = Date.now();
 
