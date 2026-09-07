@@ -353,7 +353,7 @@ module.exports = async function handler(req, res) {
                 allowed_countries: [
                     // Europe
                     'AD', 'AL', 'AT', 'BA', 'BE', 'BG', 'CH', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES',
-                    'FI', 'FR', 'GB', 'GR', 'HR', 'HU', 'IE', 'IT', 'LI', 'LT', 'MC', 'ME', 'MT',
+                    'FI', 'FR', 'GB', 'GR', 'HR', 'IE', 'IT', 'LI', 'LT', 'MC', 'ME', 'MT',
                     'NL', 'NO', 'PL', 'PT', 'RO', 'RS', 'SE', 'SI', 'SK',
                     // GCC
                     'AE', 'BH', 'KW', 'OM', 'QA', 'SA',
