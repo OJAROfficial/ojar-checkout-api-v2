@@ -5,7 +5,7 @@
  * Receives cart data from Shopify theme, creates a Stripe Checkout session
  * with the customer's selected currency and shipping calculated.
  * 
- * Gift box bundles automatically get 30% discount on gift box items only.
+ * Gift box bundles automatically get 20% discount on gift box items only.
  * Absolute Oils-tagged items get a quantity-based discount (no stacking with gift box).
  * Abandoned checkouts (email + cart) are recorded in Supabase — never blocks checkout.
  */
@@ -214,8 +214,8 @@ module.exports = async function handler(req, res) {
             return meta;
         })();
 
-        // ===== GIFT BOX 30% DISCOUNT LOGIC =====
-        // Apply 30% discount ONLY to gift box items (regular products stay full price)
+        // ===== GIFT BOX 20% DISCOUNT LOGIC =====
+        // Apply 20% discount ONLY to gift box items (regular products stay full price)
         let sessionDiscounts = null;
         
         const giftBoxItems = cartItems.filter(item => 
@@ -229,8 +229,8 @@ module.exports = async function handler(req, res) {
                     (sum, item) => sum + (item.price * item.quantity), 0
                 );
                 
-                // Calculate 30% discount amount
-                const discountAmount = Math.round(giftBoxSubtotal * 0.30);
+                // Calculate 20% discount amount
+                const discountAmount = Math.round(giftBoxSubtotal * 0.20);
                 
                 // Get gift box name for coupon label
                 const giftBoxName = giftBoxItems[0].properties._gift_box_name || 'Gift Box';
@@ -245,9 +245,9 @@ module.exports = async function handler(req, res) {
                 
                 // Create one-time fixed-amount coupon
                 // Using fixed amount (not percentage) to ensure discount applies ONLY to gift box items
-                // FIX: Stripe coupon name has 40 char limit — shortened from "30% Bundle Discount" to "30% OFF"
+                // FIX: Stripe coupon name has 40 char limit — shortened from "30% Bundle Discount" to "20% OFF"
                 // and added .substring(0, 40) as safety net for future longer box names
-                const couponName = `${giftBoxName} - 30% OFF`.substring(0, 40);
+                const couponName = `${giftBoxName} - 20% OFF`.substring(0, 40);
                 
                 const coupon = await stripe.coupons.create({
                     amount_off: discountAmount,
